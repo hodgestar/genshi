@@ -19,7 +19,7 @@ except ImportError:
 
 setup(
     name = 'Genshi',
-    version = '0.3',
+    version = '0.3.1',
     description = 'A toolkit for stream-based generation of output for the web',
     long_description = \
 """Genshi is a Python library that provides an integrated set of components
@@ -30,7 +30,7 @@ is heavily inspired by Kid.""",
     author_email = 'info@edgewall.org',
     license = 'BSD',
     url = 'http://genshi.edgewall.org/',
-    download_url = 'http://genshi.edgewall.org/wiki/GenshiDownload',
+    download_url = 'http://genshi.edgewall.org/wiki/Download',
     zip_safe = True,
 
     classifiers = [
