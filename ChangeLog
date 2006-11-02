@@ -1,3 +1,49 @@
+Version 0.3.4
+http://svn.edgewall.org/repos/genshi/tags/0.3.4/
+(Nov 2 2006, from branches/stable/0.3.x)
+
+ * The encoding of HTML and XML files, as well as markup and text templates,
+   can now be specified. Also, the encoding specified in XML declarations is
+   now respected unless an expiclit encoding is requested.
+ * Expressions used as arguments for `py:with`, `py:def`, and `py:for`
+   directives can now contain non-ASCII strings.
+
+
+Version 0.3.3
+http://svn.edgewall.org/repos/genshi/tags/0.3.3/
+(Oct 16 2006, from branches/stable/0.3.x)
+
+ * Fixed bug introduced in 0.3.2 that broke the parsing of templates which
+   declare the same namespace more than once in a nested fashion.
+ * Fixed the parsing of HTML entity references inside attribute values, both
+   in the `XMLParser` and the `HTMLParser` classes.
+ * Some changes to usage of absolute vs. relative template paths to ensure that
+   the filenamed-keyed cache employed by the TemplateLoader doesn't mix up
+   templates with the same name, but from different subdirectories.
+
+
+Version 0.3.2
+http://svn.edgewall.org/repos/genshi/tags/0.3.2/
+(Oct 12 2006, from branches/stable/0.3.x)
+
+ * Exceptions from templates now contain the absolute path to the template file
+   when a search path is used. This enables tracebacks to display the line in
+   question.
+ * The template engine plugin now provides three different types: "genshi" and
+   "genshi-markup" map to markup templates, while "genshi-text" maps to text
+   templates.
+ * Fixed the namespace context used by XPath patterns in py:match templates.
+   The were erroneously using the namespace context of the elements being
+   matched, where they should rather use the context in which they were
+   defined.
+ * The contents of `<script>` and `<style>` elements are no longer escaped when
+   serializing to HTML but declaring the XHTML namespace in the template.
+ * Improved error message raised when using the `py:for` directive on an object
+   that is not iterable (ticket #60).
+ * Fixed the XPath function `starts-with()` which was always returning true
+   (ticket #61).
+
+
 Version 0.3.1
 http://svn.edgewall.org/repos/genshi/tags/0.3.1/
 (Sep 22 2006, from branches/stable/0.3.x)

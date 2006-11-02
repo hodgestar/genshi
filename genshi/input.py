@@ -21,7 +21,7 @@ import HTMLParser as html
 import htmlentitydefs
 from StringIO import StringIO
 
-from genshi.core import Attrs, QName, Stream
+from genshi.core import Attrs, QName, Stream, stripentities
 from genshi.core import DOCTYPE, START, END, START_NS, END_NS, TEXT, \
                         START_CDATA, END_CDATA, PI, COMMENT
 
@@ -56,17 +56,24 @@ class XMLParser(object):
     END root
     """
 
-    def __init__(self, source, filename=None):
-        """Initialize the parser for the given XML text.
+    _entitydefs = ['<!ENTITY %s "&#%d;">' % (name, value) for name, value in
+                   htmlentitydefs.name2codepoint.items()]
+    _external_dtd = '\n'.join(_entitydefs)
+
+    def __init__(self, source, filename=None, encoding=None):
+        """Initialize the parser for the given XML input.
         
         @param source: the XML text as a file-like object
         @param filename: the name of the file, if appropriate
+        @param encoding: the encoding of the file; if not specified, the
+            encoding is assumed to be ASCII, UTF-8, or UTF-16, or whatever the
+            encoding specified in the XML declaration (if any)
         """
         self.source = source
         self.filename = filename
 
         # Setup the Expat parser
-        parser = expat.ParserCreate('utf-8', '}')
+        parser = expat.ParserCreate(encoding, '}')
         parser.buffer_text = True
         parser.returns_unicode = True
         parser.ordered_attributes = True
@@ -85,7 +92,9 @@ class XMLParser(object):
         # Tell Expat that we'll handle non-XML entities ourselves
         # (in _handle_other)
         parser.DefaultHandler = self._handle_other
+        parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_ALWAYS)
         parser.UseForeignDTD()
+        parser.ExternalEntityRefHandler = self._build_foreign
 
         # Location reporting is only support in Python >= 2.4
         if not hasattr(parser, 'CurrentLineNumber'):
@@ -125,6 +134,11 @@ class XMLParser(object):
 
     def __iter__(self):
         return iter(self.parse())
+
+    def _build_foreign(self, context, base, sysid, pubid):
+        parser = self.expat.ExternalEntityParserCreate(context)
+        parser.ParseFile(StringIO(self._external_dtd))
+        return 1
 
     def _enqueue(self, kind, data=None, pos=None):
         if pos is None:
@@ -224,10 +238,17 @@ class HTMLParser(html.HTMLParser, object):
                               'hr', 'img', 'input', 'isindex', 'link', 'meta',
                               'param'])
 
-    def __init__(self, source, filename=None):
+    def __init__(self, source, filename=None, encoding='utf-8'):
+        """Initialize the parser for the given HTML input.
+        
+        @param source: the HTML text as a file-like object
+        @param filename: the name of the file, if known
+        @param filename: encoding of the file; ignored if the input is unicode
+        """
         html.HTMLParser.__init__(self)
         self.source = source
         self.filename = filename
+        self.encoding = encoding
         self._queue = []
         self._open_tags = []
 
@@ -276,8 +297,10 @@ class HTMLParser(html.HTMLParser, object):
         fixed_attrib = []
         for name, value in attrib: # Fixup minimized attributes
             if value is None:
-                value = name
-            fixed_attrib.append((name, unicode(value)))
+                value = unicode(name)
+            elif not isinstance(value, unicode):
+                value = value.decode(self.encoding, 'replace')
+            fixed_attrib.append((name, stripentities(value)))
 
         self._enqueue(START, (QName(tag), Attrs(fixed_attrib)))
         if tag in self._EMPTY_ELEMS:
@@ -295,6 +318,8 @@ class HTMLParser(html.HTMLParser, object):
             self._enqueue(END, QName(tag))
 
     def handle_data(self, text):
+        if not isinstance(text, unicode):
+            text = text.decode(self.encoding, 'replace')
         self._enqueue(TEXT, text)
 
     def handle_charref(self, name):
@@ -317,8 +342,8 @@ class HTMLParser(html.HTMLParser, object):
         self._enqueue(COMMENT, text)
 
 
-def HTML(text):
-    return Stream(list(HTMLParser(StringIO(text))))
+def HTML(text, encoding='utf-8'):
+    return Stream(list(HTMLParser(StringIO(text), encoding=encoding)))
 
 def _coalesce(stream):
     """Coalesces adjacent TEXT events into a single event."""

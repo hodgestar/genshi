@@ -21,7 +21,8 @@ import tempfile
 from genshi import template
 from genshi.core import Markup, Stream
 from genshi.template import BadDirectiveError, MarkupTemplate, Template, \
-                            TemplateLoader, TemplateSyntaxError, TextTemplate
+                            TemplateLoader, TemplateRuntimeError, \
+                            TemplateSyntaxError, TextTemplate
 
 
 class AttrsDirectiveTestCase(unittest.TestCase):
@@ -173,7 +174,7 @@ class ChooseDirectiveTestCase(unittest.TestCase):
         tmpl = MarkupTemplate("""<doc xmlns:py="http://genshi.edgewall.org/">
           <div py:when="xy" />
         </doc>""")
-        self.assertRaises(TemplateSyntaxError, str, tmpl.generate())
+        self.assertRaises(TemplateRuntimeError, str, tmpl.generate())
 
     def test_otherwise_outside_choose(self):
         """
@@ -183,7 +184,7 @@ class ChooseDirectiveTestCase(unittest.TestCase):
         tmpl = MarkupTemplate("""<doc xmlns:py="http://genshi.edgewall.org/">
           <div py:otherwise="" />
         </doc>""")
-        self.assertRaises(TemplateSyntaxError, str, tmpl.generate())
+        self.assertRaises(TemplateRuntimeError, str, tmpl.generate())
 
     def test_when_without_test(self):
         """
@@ -195,7 +196,7 @@ class ChooseDirectiveTestCase(unittest.TestCase):
             <py:when>foo</py:when>
           </div>
         </doc>""")
-        self.assertRaises(TemplateSyntaxError, str, tmpl.generate())
+        self.assertRaises(TemplateRuntimeError, str, tmpl.generate())
 
     def test_otherwise_without_test(self):
         """
@@ -439,6 +440,22 @@ class ForDirectiveTestCase(unittest.TestCase):
             <p>0: key=a, value=1</p>
             <p>1: key=b, value=2</p>
         </doc>""", str(tmpl.generate(items=enumerate(dict(a=1, b=2).items()))))
+
+    def test_not_iterable(self):
+        """
+        Verify that assignment to nested tuples works correctly.
+        """
+        tmpl = MarkupTemplate("""<doc xmlns:py="http://genshi.edgewall.org/">
+          <py:for each="item in foo">
+            $item
+          </py:for>
+        </doc>""", filename='test.html')
+        try:
+            list(tmpl.generate(foo=12))
+        except TemplateRuntimeError, e:
+            self.assertEqual('test.html', e.filename)
+            if sys.version_info[:2] >= (2, 4):
+                self.assertEqual(2, e.lineno)
 
 
 class IfDirectiveTestCase(unittest.TestCase):
@@ -690,6 +707,18 @@ class MatchDirectiveTestCase(unittest.TestCase):
           </p></form>
         </html>""", str(tmpl.generate(fields=fields, values=values)))
 
+    def test_namespace_context(self):
+        tmpl = MarkupTemplate("""<html xmlns:py="http://genshi.edgewall.org/"
+                                       xmlns:x="http://www.example.org/">
+          <div py:match="x:foo">Foo</div>
+          <foo xmlns="http://www.example.org/"/>
+        </html>""")
+        # FIXME: there should be a way to strip out unwanted/unused namespaces,
+        #        such as the "x" in this example
+        self.assertEqual("""<html xmlns:x="http://www.example.org/">
+          <div>Foo</div>
+        </html>""", str(tmpl.generate()))
+
     # FIXME
     #def test_match_after_step(self):
     #    tmpl = MarkupTemplate("""<div xmlns:py="http://genshi.edgewall.org/">
@@ -795,6 +824,18 @@ class WithDirectiveTestCase(unittest.TestCase):
         self.assertEqual("""<div>
             here is a semicolon: ;
             here are two semicolons: ;;
+        </div>""", str(tmpl.generate()))
+
+    def test_unicode_expr(self):
+        tmpl = MarkupTemplate("""<div xmlns:py="http://genshi.edgewall.org/">
+          <span py:with="weeks=(u'一', u'二', u'三', u'四', u'五', u'六', u'日')">
+            $weeks
+          </span>
+        </div>""")
+        self.assertEqual("""<div>
+          <span>
+            一二三四五六日
+          </span>
         </div>""", str(tmpl.generate()))
 
 
@@ -1016,6 +1057,33 @@ class MarkupTemplateTestCase(unittest.TestCase):
         self.assertEqual("""<div>
         </div>""", str(tmpl.generate()))
 
+    def test_parse_with_same_namespace_nested(self):
+        tmpl = MarkupTemplate("""<div xmlns:py="http://genshi.edgewall.org/">
+          <span xmlns:py="http://genshi.edgewall.org/">
+          </span>
+        </div>""")
+        self.assertEqual("""<div>
+          <span>
+          </span>
+        </div>""", str(tmpl.generate()))
+
+    def test_latin1_encoded_with_xmldecl(self):
+        tmpl = MarkupTemplate(u"""<?xml version="1.0" encoding="iso-8859-1" ?>
+        <div xmlns:py="http://genshi.edgewall.org/">
+          \xf6
+        </div>""".encode('iso-8859-1'), encoding='iso-8859-1')
+        self.assertEqual(u"""<div>
+          \xf6
+        </div>""", unicode(tmpl.generate()))
+
+    def test_latin1_encoded_explicit_encoding(self):
+        tmpl = MarkupTemplate(u"""<div xmlns:py="http://genshi.edgewall.org/">
+          \xf6
+        </div>""".encode('iso-8859-1'), encoding='iso-8859-1')
+        self.assertEqual(u"""<div>
+          \xf6
+        </div>""", unicode(tmpl.generate()))
+
 
 class TextTemplateTestCase(unittest.TestCase):
     """Tests for text template processing."""
@@ -1039,6 +1107,10 @@ class TextTemplateTestCase(unittest.TestCase):
         #end 'if foo'""")
         self.assertEqual('', str(tmpl.generate()))
 
+    def test_latin1_encoded(self):
+        text = u'$foo\xf6$bar'.encode('iso-8859-1')
+        tmpl = TextTemplate(text, encoding='iso-8859-1')
+        self.assertEqual(u'x\xf6y', unicode(tmpl.generate(foo='x', bar='y')))
 
 class TemplateLoaderTestCase(unittest.TestCase):
     """Tests for the template loader."""
@@ -1134,6 +1206,71 @@ class TemplateLoaderTestCase(unittest.TestCase):
         self.assertEqual("""<html>
               <div>Included</div>
             </html>""", tmpl.generate().render())
+
+    def test_relative_include_without_search_path_nested(self):
+        file1 = open(os.path.join(self.dirname, 'tmpl1.html'), 'w')
+        try:
+            file1.write("""<div>Included</div>""")
+        finally:
+            file1.close()
+
+        file2 = open(os.path.join(self.dirname, 'tmpl2.html'), 'w')
+        try:
+            file2.write("""<div xmlns:xi="http://www.w3.org/2001/XInclude">
+              <xi:include href="tmpl1.html" />
+            </div>""")
+        finally:
+            file2.close()
+
+        file3 = open(os.path.join(self.dirname, 'tmpl3.html'), 'w')
+        try:
+            file3.write("""<html xmlns:xi="http://www.w3.org/2001/XInclude">
+              <xi:include href="tmpl2.html" />
+            </html>""")
+        finally:
+            file3.close()
+
+        loader = TemplateLoader()
+        tmpl = loader.load(os.path.join(self.dirname, 'tmpl3.html'))
+        self.assertEqual("""<html>
+              <div>
+              <div>Included</div>
+            </div>
+            </html>""", tmpl.generate().render())
+
+    def test_relative_include_from_inmemory_template(self):
+        file1 = open(os.path.join(self.dirname, 'tmpl1.html'), 'w')
+        try:
+            file1.write("""<div>Included</div>""")
+        finally:
+            file1.close()
+
+        loader = TemplateLoader([self.dirname])
+        tmpl2 = MarkupTemplate("""<html xmlns:xi="http://www.w3.org/2001/XInclude">
+          <xi:include href="../tmpl1.html" />
+        </html>""", filename='subdir/tmpl2.html', loader=loader)
+
+        self.assertEqual("""<html>
+          <div>Included</div>
+        </html>""", tmpl2.generate().render())
+
+    def test_load_with_default_encoding(self):
+        f = open(os.path.join(self.dirname, 'tmpl.html'), 'w')
+        try:
+            f.write(u'<div>\xf6</div>'.encode('iso-8859-1'))
+        finally:
+            f.close()
+        loader = TemplateLoader([self.dirname], default_encoding='iso-8859-1')
+        loader.load('tmpl.html')
+
+    def test_load_with_explicit_encoding(self):
+        f = open(os.path.join(self.dirname, 'tmpl.html'), 'w')
+        try:
+            f.write(u'<div>\xf6</div>'.encode('iso-8859-1'))
+        finally:
+            f.close()
+        loader = TemplateLoader([self.dirname], default_encoding='utf-8')
+        loader.load('tmpl.html', encoding='iso-8859-1')
 
 
 def suite():
